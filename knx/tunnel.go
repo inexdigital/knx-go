@@ -85,6 +85,8 @@ type Tunnel struct {
 	done chan struct{}
 	once sync.Once
 	wait sync.WaitGroup
+
+	onReconnect func()
 }
 
 func (conn *Tunnel) hostInfo() (knxnet.HostInfo, error) {
@@ -564,6 +566,11 @@ func (conn *Tunnel) serve() {
 			reconnErr := conn.requestConn()
 
 			if reconnErr == nil {
+
+				if conn.onReconnect != nil {
+					conn.onReconnect()
+				}
+
 				util.Log(conn, "Reconnect succeeded")
 				continue
 			}
@@ -581,6 +588,7 @@ func NewTunnel(
 	gatewayAddr string,
 	layer knxnet.TunnelLayer,
 	config TunnelConfig,
+	onReconnect func(),
 ) (tunnel *Tunnel, err error) {
 	var sock knxnet.Socket
 
@@ -597,12 +605,13 @@ func NewTunnel(
 
 	// Initialize the Client structure.
 	client := &Tunnel{
-		sock:    sock,
-		config:  checkTunnelConfig(config),
-		layer:   layer,
-		ack:     make(chan *knxnet.TunnelRes),
-		inbound: make(chan cemi.Message),
-		done:    make(chan struct{}),
+		sock:        sock,
+		config:      checkTunnelConfig(config),
+		layer:       layer,
+		ack:         make(chan *knxnet.TunnelRes),
+		inbound:     make(chan cemi.Message),
+		done:        make(chan struct{}),
+		onReconnect: onReconnect,
 	}
 
 	// Connect to the gateway.
@@ -649,8 +658,8 @@ type GroupTunnel struct {
 }
 
 // NewGroupTunnel creates a new Tunnel for group communication.
-func NewGroupTunnel(gatewayAddr string, config TunnelConfig) (gt GroupTunnel, err error) {
-	gt.Tunnel, err = NewTunnel(gatewayAddr, knxnet.TunnelLayerData, config)
+func NewGroupTunnel(gatewayAddr string, config TunnelConfig, onConnect func()) (gt GroupTunnel, err error) {
+	gt.Tunnel, err = NewTunnel(gatewayAddr, knxnet.TunnelLayerData, config, onConnect)
 
 	if err == nil {
 		gt.inbound = make(chan GroupEvent)

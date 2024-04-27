@@ -84,7 +84,7 @@ type bridge struct {
 
 func newBridge(gatewayAddr, otherAddr string) (*bridge, error) {
 	// Instantiate tunnel connection.
-	tunnel, err := knx.NewTunnel(gatewayAddr, knxnet.TunnelLayerData, knx.DefaultTunnelConfig)
+	tunnel, err := knx.NewTunnel(gatewayAddr, knxnet.TunnelLayerData, knx.DefaultTunnelConfig, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func newBridge(gatewayAddr, otherAddr string) (*bridge, error) {
 		other = indRelay{router}
 	} else {
 		// Instantiate tunnel connection.
-		otherTunnel, err := knx.NewTunnel(otherAddr, knxnet.TunnelLayerData, knx.DefaultTunnelConfig)
+		otherTunnel, err := knx.NewTunnel(otherAddr, knxnet.TunnelLayerData, knx.DefaultTunnelConfig, nil)
 		if err != nil {
 			tunnel.Close()
 			return nil, err
