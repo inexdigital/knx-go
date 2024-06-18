@@ -85,6 +85,9 @@ type Tunnel struct {
 	done chan struct{}
 	once sync.Once
 	wait sync.WaitGroup
+
+	// requestTunnel() cancel
+	cancelReq chan struct{}
 }
 
 func (conn *Tunnel) hostInfo() (knxnet.HostInfo, error) {
@@ -162,6 +165,9 @@ func (conn *Tunnel) requestConn() (err error) {
 					conn.channel = res.Channel
 
 					conn.seqMu.Lock()
+					// We are inside seqMu which is used in requestTunnel() as well
+					// It means that here all previous requestTunnel() already ended
+					conn.cancelReq = make(chan struct{}) // reset closed channel
 					conn.seqNumber = 0
 					conn.seqMu.Unlock()
 
@@ -304,6 +310,8 @@ func (conn *Tunnel) requestTunnel(data cemi.Message) error {
 			}
 
 			return fmt.Errorf("tunnelConn request has been rejected with status %#x", res.Status)
+		case <-conn.cancelReq:
+			return errors.New("tunnel request has been cancelled because of reconnection")
 		}
 	}
 }
@@ -561,6 +569,7 @@ func (conn *Tunnel) serve() {
 		if err == errDisconnected || err == errHeartbeatFailed {
 			util.Log(conn, "Attempting reconnect")
 
+			close(conn.cancelReq)
 			reconnErr := conn.requestConn()
 
 			if reconnErr == nil {
@@ -597,12 +606,13 @@ func NewTunnel(
 
 	// Initialize the Client structure.
 	client := &Tunnel{
-		sock:    sock,
-		config:  checkTunnelConfig(config),
-		layer:   layer,
-		ack:     make(chan *knxnet.TunnelRes),
-		inbound: make(chan cemi.Message),
-		done:    make(chan struct{}),
+		sock:      sock,
+		config:    checkTunnelConfig(config),
+		layer:     layer,
+		ack:       make(chan *knxnet.TunnelRes),
+		inbound:   make(chan cemi.Message),
+		done:      make(chan struct{}),
+		cancelReq: make(chan struct{}),
 	}
 
 	// Connect to the gateway.
