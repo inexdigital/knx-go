@@ -289,7 +289,7 @@ func (conn *Tunnel) requestTunnel(data cemi.Message) error {
 		// Received a tunnel response.
 		case res, open := <-conn.ack:
 			if !open {
-				return errors.New("connection server has terminated")
+				return errors.New("connection server has terminated or reconnection happened")
 			}
 
 			// Ignore mismatching sequence numbers.
@@ -563,7 +563,9 @@ func (conn *Tunnel) serve() {
 		if err == errDisconnected || err == errHeartbeatFailed {
 			util.Log(conn, "Attempting reconnect")
 
+			close(conn.ack)
 			reconnErr := conn.requestConn()
+			conn.ack = make(chan *knxnet.TunnelRes)
 
 			if reconnErr == nil {
 
