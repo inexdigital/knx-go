@@ -239,7 +239,6 @@ func (conn *Tunnel) requestTunnel(data cemi.Message) error {
 	conn.seqMu.Lock()
 	defer conn.seqMu.Unlock()
 
-	ack := conn.ack
 	var seqNumber uint8
 
 	if !conn.config.UseTCP {
@@ -286,7 +285,7 @@ func (conn *Tunnel) requestTunnel(data cemi.Message) error {
 			}
 
 		// Received a tunnel response.
-		case res, open := <-ack:
+		case res, open := <-conn.ack:
 			if !open {
 				return errors.New("connection server has terminated or reconnection happened")
 			}
