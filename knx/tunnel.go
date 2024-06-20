@@ -58,6 +58,22 @@ func checkTunnelConfig(config TunnelConfig) TunnelConfig {
 	return config
 }
 
+type TunnelOption func(*Tunnel)
+
+// WithOnConnect sets a function to be called when the connection has been established.
+func WithOnConnect(onConnect func() error) TunnelOption {
+	return func(conn *Tunnel) {
+		conn.onConnect = onConnect
+	}
+}
+
+// WithOnDisconnect sets a function to be called when the connection has been terminated.
+func WithOnDisconnect(onDisconnect func() error) TunnelOption {
+	return func(conn *Tunnel) {
+		conn.onDisconnect = onDisconnect
+	}
+}
+
 var (
 	errResponseTimeout = errors.New("response timeout reached")
 )
@@ -65,8 +81,10 @@ var (
 // A Tunnel provides methods to communicate with a KNXnet/IP gateway.
 type Tunnel struct {
 	// Communication methods
-	sock   knxnet.Socket
-	config TunnelConfig
+	sock         knxnet.Socket
+	config       TunnelConfig
+	onConnect    func() error
+	onDisconnect func() error
 
 	// Connection information
 	layer   knxnet.TunnelLayer
@@ -165,7 +183,11 @@ func (conn *Tunnel) requestConn() (err error) {
 					conn.seqNumber = 0
 					conn.seqMu.Unlock()
 
-					return nil
+					if conn.onConnect == nil {
+						return nil
+					}
+
+					return conn.onConnect()
 
 				// The gateway is busy, but we don't stop yet.
 				case knxnet.ErrNoMoreConnections, knxnet.ErrNoMoreUniqueConnections:
@@ -559,6 +581,14 @@ func (conn *Tunnel) serve() {
 
 		// Check if we can try again.
 		if err == errDisconnected || err == errHeartbeatFailed {
+			if conn.onDisconnect != nil {
+				if err = conn.onDisconnect(); err != nil {
+					util.Log(conn, "Error while disconnecting: %v", err)
+
+					return
+				}
+			}
+
 			util.Log(conn, "Attempting reconnect")
 
 			close(conn.ack)
@@ -583,6 +613,7 @@ func NewTunnel(
 	gatewayAddr string,
 	layer knxnet.TunnelLayer,
 	config TunnelConfig,
+	options ...TunnelOption,
 ) (tunnel *Tunnel, err error) {
 	var sock knxnet.Socket
 
@@ -605,6 +636,10 @@ func NewTunnel(
 		ack:     make(chan *knxnet.TunnelRes),
 		inbound: make(chan cemi.Message),
 		done:    make(chan struct{}),
+	}
+
+	for _, option := range options {
+		option(client)
 	}
 
 	// Connect to the gateway.
@@ -651,8 +686,8 @@ type GroupTunnel struct {
 }
 
 // NewGroupTunnel creates a new Tunnel for group communication.
-func NewGroupTunnel(gatewayAddr string, config TunnelConfig) (gt GroupTunnel, err error) {
-	gt.Tunnel, err = NewTunnel(gatewayAddr, knxnet.TunnelLayerData, config)
+func NewGroupTunnel(gatewayAddr string, config TunnelConfig, options ...TunnelOption) (gt GroupTunnel, err error) {
+	gt.Tunnel, err = NewTunnel(gatewayAddr, knxnet.TunnelLayerData, config, options...)
 
 	if err == nil {
 		gt.inbound = make(chan GroupEvent)
