@@ -58,6 +58,22 @@ func checkTunnelConfig(config TunnelConfig) TunnelConfig {
 	return config
 }
 
+type TunnelOption func(*Tunnel)
+
+// WithOnConnect sets a function to be called when the connection has been established.
+func WithOnConnect(onConnect func() error) TunnelOption {
+	return func(conn *Tunnel) {
+		conn.onConnect = onConnect
+	}
+}
+
+// WithOnDisconnect sets a function to be called when the connection has been terminated.
+func WithOnDisconnect(onDisconnect func() error) TunnelOption {
+	return func(conn *Tunnel) {
+		conn.onDisconnect = onDisconnect
+	}
+}
+
 var (
 	errResponseTimeout = errors.New("response timeout reached")
 )
@@ -597,7 +613,7 @@ func NewTunnel(
 	gatewayAddr string,
 	layer knxnet.TunnelLayer,
 	config TunnelConfig,
-	onConnect, onDisconnect func() error,
+	options ...TunnelOption,
 ) (tunnel *Tunnel, err error) {
 	var sock knxnet.Socket
 
@@ -614,14 +630,16 @@ func NewTunnel(
 
 	// Initialize the Client structure.
 	client := &Tunnel{
-		sock:         sock,
-		onConnect:    onConnect,
-		onDisconnect: onDisconnect,
-		config:       checkTunnelConfig(config),
-		layer:        layer,
-		ack:          make(chan *knxnet.TunnelRes),
-		inbound:      make(chan cemi.Message),
-		done:         make(chan struct{}),
+		sock:    sock,
+		config:  checkTunnelConfig(config),
+		layer:   layer,
+		ack:     make(chan *knxnet.TunnelRes),
+		inbound: make(chan cemi.Message),
+		done:    make(chan struct{}),
+	}
+
+	for _, option := range options {
+		option(client)
 	}
 
 	// Connect to the gateway.
@@ -668,12 +686,8 @@ type GroupTunnel struct {
 }
 
 // NewGroupTunnel creates a new Tunnel for group communication.
-func NewGroupTunnel(
-	gatewayAddr string,
-	config TunnelConfig,
-	onConnect, onDisconnect func() error,
-) (gt GroupTunnel, err error) {
-	gt.Tunnel, err = NewTunnel(gatewayAddr, knxnet.TunnelLayerData, config, onConnect, onDisconnect)
+func NewGroupTunnel(gatewayAddr string, config TunnelConfig, options ...TunnelOption) (gt GroupTunnel, err error) {
+	gt.Tunnel, err = NewTunnel(gatewayAddr, knxnet.TunnelLayerData, config, options...)
 
 	if err == nil {
 		gt.inbound = make(chan GroupEvent)
