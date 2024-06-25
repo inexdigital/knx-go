@@ -568,7 +568,7 @@ func (conn *Tunnel) serve() {
 	util.Log(conn, "Started worker")
 	defer util.Log(conn, "Worker exited")
 
-	defer close(conn.ack)
+	defer func() { close(conn.ack) }()
 	defer close(conn.inbound)
 	defer conn.wait.Done()
 
